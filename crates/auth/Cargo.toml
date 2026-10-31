@@ -23,7 +23,7 @@ derive_more = { workspace = true }
 opaque-ke = { workspace = true }
 serde = { workspace = true }
 rust-argon2 = "2"
-curve25519-dalek = "3"
+curve25519-dalek = "4"
 digest = "0.9"
 generic-array = "0.14"
 rand = { workspace = true }
