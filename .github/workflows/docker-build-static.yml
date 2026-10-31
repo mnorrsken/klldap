@@ -33,25 +33,18 @@ env:
 ### upload artifacts
 
 # build-bin
-## build-armhf, build-aarch64, build-amd64 , create binary for respective arch
-#######################################################################################
-# GitHub actions randomly timeout when downloading musl-gcc, using custom dev image   #
-# Look into .github/workflows/Dockerfile.dev for development image details            #
-# Using our own dev image based on https://hub.docker.com/_/rust and musl-gcc bundled #
-# The dev-image job builds it when Dockerfile.dev changes (tag = hash of that file)   #
-#######################################################################################
-# Cargo build
-### armv7, aarch64 and amd64 is musl based
+## build the amd64 and arm64 glibc binaries, each on a native runner of that architecture
+## Pinned to ubuntu-24.04: its glibc must not be newer than the one in debian:trixie
 
-# build-ui,builds-armhf, build-aarch64, build-amd64 will upload artifacts will be used next job
+# build-ui, build-bin will upload artifacts will be used next job
 
 # lldap-test
 ### will run lldap with postgres, mariadb and sqlite backend, do selfcheck command.
 
 # Build docker image
-### Triplet docker image arch with debian and alpine base
+### amd64 and arm64 docker images with debian base
 # build-docker-image job will fetch artifacts and run Dockerfile.ci then push the image.
-### Look into .github/workflows/Dockerfile.ci.debian or .github/workflowds/Dockerfile.ci.alpine
+### Look into .github/workflows/Dockerfile.ci.debian
 
 # Create release artifacts
 ### Fetch artifacts
@@ -77,50 +70,6 @@ jobs:
           paths_ignore: '["**/*.md", "**/docs/**", "example_configs/**", "*.sh", ".gitignore", "lldap_config.docker_template.toml"]'
           do_not_skip: '["workflow_dispatch", "schedule"]'
           cancel_others: true
-
-  dev-image:
-    name: Rust dev image
-    runs-on: ubuntu-latest
-    needs: pre_job
-    if: ${{ needs.pre_job.outputs.should_skip != 'true' || startsWith(github.ref, 'refs/tags/') }}
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image: ${{ steps.name.outputs.image }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6.0.2
-      - name: Name the image after the hash of its Dockerfile
-        id: name
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}-rust-dev:$(sha256sum .github/workflows/Dockerfile.dev | cut -c1-12)" >> "$GITHUB_OUTPUT"
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Check if the image exists
-        id: check
-        run: |
-          if docker manifest inspect "${{ steps.name.outputs.image }}" > /dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Setup buildx
-        if: steps.check.outputs.exists != 'true'
-        uses: docker/setup-buildx-action@v4
-      - name: Build and push the image
-        if: steps.check.outputs.exists != 'true'
-        uses: docker/build-push-action@v7
-        with:
-          context: .github/workflows
-          file: .github/workflows/Dockerfile.dev
-          platforms: linux/amd64
-          push: true
-          tags: ${{ steps.name.outputs.image }}
-          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
   cargo-test:
     name: cargo test
@@ -161,13 +110,8 @@ jobs:
 
   build-ui:
     runs-on: ubuntu-latest
-    needs: [pre_job, dev-image]
+    needs: pre_job
     if: ${{ needs.pre_job.outputs.should_skip != 'true' || startsWith(github.ref, 'refs/tags/') }}
-    container:
-      image: ${{ needs.dev-image.outputs.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6.0.2
@@ -180,10 +124,10 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: |
-            /usr/local/cargo/bin
-            /usr/local/cargo/registry/index
-            /usr/local/cargo/registry/cache
-            /usr/local/cargo/git/db
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             target
           key: lldap-ui-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
@@ -204,22 +148,17 @@ jobs:
 
 
   build-bin:
-    runs-on: ubuntu-latest
-    needs: [pre_job, dev-image]
+    runs-on: ${{ matrix.runner }}
+    needs: pre_job
     if: ${{ needs.pre_job.outputs.should_skip != 'true' || startsWith(github.ref, 'refs/tags/') }}
     strategy:
       fail-fast: false
       matrix:
-        target: [armv7-unknown-linux-musleabihf, aarch64-unknown-linux-musl, x86_64-unknown-linux-musl]
-    container:
-      image: ${{ needs.dev-image.outputs.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-      env:
-        CARGO_TERM_COLOR: always
-        RUSTFLAGS: -Ctarget-feature=+crt-static
-        CARGO_HOME: ${GITHUB_WORKSPACE}/.cargo
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6.0.2
@@ -232,10 +171,9 @@ jobs:
       - uses: actions/cache@v5
         with:
           path: |
-            .cargo/bin
-            .cargo/registry/index
-            .cargo/registry/cache
-            .cargo/git/db
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             target
           key: lldap-bin-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
@@ -297,7 +235,7 @@ jobs:
        - name: Download artifacts
          uses: actions/download-artifact@v8
          with:
-           name: x86_64-unknown-linux-musl-lldap-bin
+           name: x86_64-unknown-linux-gnu-lldap-bin
            path: bin/
 
        - name: Set executables to LLDAP
@@ -403,13 +341,13 @@ jobs:
        - name: Download LLDAP artifacts
          uses: actions/download-artifact@v8
          with:
-           name: x86_64-unknown-linux-musl-lldap-bin
+           name: x86_64-unknown-linux-gnu-lldap-bin
            path: bin/
 
        - name: Download LLDAP set password
          uses: actions/download-artifact@v8
          with:
-           name: x86_64-unknown-linux-musl-lldap_set_password-bin
+           name: x86_64-unknown-linux-gnu-lldap_set_password-bin
            path: bin/
 
        - name: Set executables to LLDAP and LLDAP set password
@@ -553,10 +491,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        container: ["debian","alpine"]
+        container: ["debian"]
         include:
-          - container: alpine
-            platforms: linux/amd64,linux/arm64,linux/arm/v7
+          - container: debian
+            platforms: linux/amd64,linux/arm64
             tags: |
                   type=ref,event=pr
                   type=semver,pattern=v{{version}}
@@ -571,16 +509,6 @@ jobs:
                   type=raw,value=latest,enable={{ is_default_branch }},suffix=
                   type=raw,value={{ date 'YYYY-MM-DD' }},enable={{ is_default_branch }}
                   type=raw,value={{ date 'YYYY-MM-DD' }},enable={{ is_default_branch }},suffix=
-          - container: debian
-            platforms: linux/amd64,linux/arm64,linux/arm/v7
-            tags: |
-                  type=ref,event=pr
-                  type=semver,pattern=v{{version}}
-                  type=semver,pattern=v{{major}}
-                  type=semver,pattern=v{{major}}.{{minor}}
-                  type=raw,value=latest,enable={{ is_default_branch }}
-                  type=raw,value=stable,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-                  type=raw,value={{ date 'YYYY-MM-DD' }},enable={{ is_default_branch }}
     services:
       registry:
         image: registry:2
@@ -649,22 +577,12 @@ jobs:
           images: |
             ghcr.io/${{ github.repository }}
           # Wanted Docker tags
-          # vX-alpine
-          # vX.Y-alpine
-          # vX.Y.Z-alpine
-          # latest
-          # latest-alpine
-          # stable
-          # stable-alpine
-          # YYYY-MM-DD
-          # YYYY-MM-DD-alpine
-          #################
-          # vX-debian
-          # vX.Y-debian
-          # vX.Y.Z-debian
-          # latest-debian
-          # stable-debian
-          # YYYY-MM-DD-debian
+          # vX, vX-debian
+          # vX.Y, vX.Y-debian
+          # vX.Y.Z, vX.Y.Z-debian
+          # latest, latest-debian
+          # stable, stable-debian
+          # YYYY-MM-DD, YYYY-MM-DD-debian
           #################
           # Check matrix for tag list definition
           flavor: |
@@ -680,22 +598,12 @@ jobs:
           images: |
             ghcr.io/${{ github.repository }}
           # Wanted Docker tags
-          # vX-alpine
-          # vX.Y-alpine
-          # vX.Y.Z-alpine
-          # latest
-          # latest-alpine
-          # stable
-          # stable-alpine
-          # YYYY-MM-DD
-          # YYYY-MM-DD-alpine
-          #################
-          # vX-debian
-          # vX.Y-debian
-          # vX.Y.Z-debian
-          # latest-debian
-          # stable-debian
-          # YYYY-MM-DD-debian
+          # vX, vX-debian
+          # vX.Y, vX.Y-debian
+          # vX.Y.Z, vX.Y.Z-debian
+          # latest, latest-debian
+          # stable, stable-debian
+          # YYYY-MM-DD, YYYY-MM-DD-debian
           #################
           # Check matrix for tag list definition
           flavor: |
@@ -781,15 +689,12 @@ jobs:
         run: ls -alR bin/
       - name: Fixing Filename
         run: |
-             mv bin/aarch64-unknown-linux-musl-lldap-bin/lldap bin/aarch64-lldap
-             mv bin/x86_64-unknown-linux-musl-lldap-bin/lldap bin/amd64-lldap
-             mv bin/armv7-unknown-linux-musleabihf-lldap-bin/lldap bin/armhf-lldap
-             mv bin/aarch64-unknown-linux-musl-lldap_migration_tool-bin/lldap_migration_tool bin/aarch64-lldap_migration_tool
-             mv bin/x86_64-unknown-linux-musl-lldap_migration_tool-bin/lldap_migration_tool bin/amd64-lldap_migration_tool
-             mv bin/armv7-unknown-linux-musleabihf-lldap_migration_tool-bin/lldap_migration_tool bin/armhf-lldap_migration_tool
-             mv bin/aarch64-unknown-linux-musl-lldap_set_password-bin/lldap_set_password bin/aarch64-lldap_set_password
-             mv bin/x86_64-unknown-linux-musl-lldap_set_password-bin/lldap_set_password bin/amd64-lldap_set_password
-             mv bin/armv7-unknown-linux-musleabihf-lldap_set_password-bin/lldap_set_password bin/armhf-lldap_set_password
+             mv bin/aarch64-unknown-linux-gnu-lldap-bin/lldap bin/aarch64-lldap
+             mv bin/x86_64-unknown-linux-gnu-lldap-bin/lldap bin/amd64-lldap
+             mv bin/aarch64-unknown-linux-gnu-lldap_migration_tool-bin/lldap_migration_tool bin/aarch64-lldap_migration_tool
+             mv bin/x86_64-unknown-linux-gnu-lldap_migration_tool-bin/lldap_migration_tool bin/amd64-lldap_migration_tool
+             mv bin/aarch64-unknown-linux-gnu-lldap_set_password-bin/lldap_set_password bin/aarch64-lldap_set_password
+             mv bin/x86_64-unknown-linux-gnu-lldap_set_password-bin/lldap_set_password bin/amd64-lldap_set_password
              chmod +x bin/*-lldap
              chmod +x bin/*-lldap_migration_tool
              chmod +x bin/*-lldap_set_password
@@ -813,28 +718,21 @@ jobs:
         run: |
              mkdir aarch64-lldap
              mkdir amd64-lldap
-             mkdir armhf-lldap
              mv bin/aarch64-lldap aarch64-lldap/lldap
              mv bin/amd64-lldap amd64-lldap/lldap
-             mv bin/armhf-lldap armhf-lldap/lldap
              mv bin/aarch64-lldap_migration_tool aarch64-lldap/lldap_migration_tool
              mv bin/amd64-lldap_migration_tool amd64-lldap/lldap_migration_tool
-             mv bin/armhf-lldap_migration_tool armhf-lldap/lldap_migration_tool
              mv bin/aarch64-lldap_set_password aarch64-lldap/lldap_set_password
              mv bin/amd64-lldap_set_password amd64-lldap/lldap_set_password
-             mv bin/armhf-lldap_set_password armhf-lldap/lldap_set_password
              cp -r app aarch64-lldap/
              cp -r app amd64-lldap/
-             cp -r app armhf-lldap/
              ls -alR aarch64-lldap/
              ls -alR amd64-lldap/
-             ls -alR armhf-lldap/
 
       - name: Packing LLDAP and Web UI
         run: |
              tar -czvf aarch64-lldap.tar.gz aarch64-lldap/
              tar -czvf amd64-lldap.tar.gz amd64-lldap/
-             tar -czvf armhf-lldap.tar.gz armhf-lldap/
 
 
       - name: Upload compressed release
@@ -843,8 +741,7 @@ jobs:
         with:
           allowUpdates: true
           artifacts:  aarch64-lldap.tar.gz,
-                      amd64-lldap.tar.gz,
-                      armhf-lldap.tar.gz
+                      amd64-lldap.tar.gz
           draft: true
           omitBodyDuringUpdate: true
           omitDraftDuringUpdate: true

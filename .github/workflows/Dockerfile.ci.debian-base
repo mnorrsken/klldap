@@ -13,9 +13,9 @@ RUN mkdir -p target/
 RUN mkdir -p /lldap/app
 
 RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
-    mv bin/x86_64-unknown-linux-musl-lldap-bin/lldap target/lldap && \
-    mv bin/x86_64-unknown-linux-musl-lldap_migration_tool-bin/lldap_migration_tool target/lldap_migration_tool && \
-    mv bin/x86_64-unknown-linux-musl-lldap_set_password-bin/lldap_set_password target/lldap_set_password && \
+    mv bin/x86_64-unknown-linux-gnu-lldap-bin/lldap target/lldap && \
+    mv bin/x86_64-unknown-linux-gnu-lldap_migration_tool-bin/lldap_migration_tool target/lldap_migration_tool && \
+    mv bin/x86_64-unknown-linux-gnu-lldap_set_password-bin/lldap_set_password target/lldap_set_password && \
     chmod +x target/lldap && \
     chmod +x target/lldap_migration_tool && \
     chmod +x target/lldap_set_password && \
@@ -24,20 +24,9 @@ RUN if [ "${TARGETPLATFORM}" = "linux/amd64" ]; then \
     ; fi
 
 RUN if [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
-    mv bin/aarch64-unknown-linux-musl-lldap-bin/lldap target/lldap && \
-    mv bin/aarch64-unknown-linux-musl-lldap_migration_tool-bin/lldap_migration_tool target/lldap_migration_tool && \
-    mv bin/aarch64-unknown-linux-musl-lldap_set_password-bin/lldap_set_password target/lldap_set_password && \
-    chmod +x target/lldap && \
-    chmod +x target/lldap_migration_tool && \
-    chmod +x target/lldap_set_password && \
-    ls -la target/ . && \
-    pwd \
-    ; fi
-
-RUN if [ "${TARGETPLATFORM}" = "linux/arm/v7" ]; then \
-    mv bin/armv7-unknown-linux-musleabihf-lldap-bin/lldap target/lldap && \
-    mv bin/armv7-unknown-linux-musleabihf-lldap_migration_tool-bin/lldap_migration_tool target/lldap_migration_tool && \
-    mv bin/armv7-unknown-linux-musleabihf-lldap_set_password-bin/lldap_set_password target/lldap_set_password && \
+    mv bin/aarch64-unknown-linux-gnu-lldap-bin/lldap target/lldap && \
+    mv bin/aarch64-unknown-linux-gnu-lldap_migration_tool-bin/lldap_migration_tool target/lldap_migration_tool && \
+    mv bin/aarch64-unknown-linux-gnu-lldap_set_password-bin/lldap_set_password target/lldap_set_password && \
     chmod +x target/lldap && \
     chmod +x target/lldap_migration_tool && \
     chmod +x target/lldap_set_password && \
