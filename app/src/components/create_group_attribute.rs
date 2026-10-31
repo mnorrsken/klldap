@@ -36,7 +36,7 @@ pub struct CreateGroupAttributeForm {
 pub struct CreateGroupAttributeModel {
     #[validate(length(min = 1, message = "attribute_name is required"))]
     attribute_name: String,
-    #[validate(custom = "validate_attribute_type")]
+    #[validate(custom(function = "validate_attribute_type"))]
     attribute_type: String,
     is_list: bool,
     is_visible: bool, // remove when backend doesn't return group attributes for normal users

@@ -1,5 +1,5 @@
 # Keep tracking base image
-FROM rust:1.91-slim-bookworm
+FROM rust:1.91-slim-trixie
 
 # Set needed env path
 ENV PATH="/opt/armv7l-linux-musleabihf-cross/:/opt/armv7l-linux-musleabihf-cross/bin/:/opt/aarch64-linux-musl-cross/:/opt/aarch64-linux-musl-cross/bin/:/opt/x86_64-linux-musl-cross/:/opt/x86_64-linux-musl-cross/bin/:$PATH"
@@ -20,12 +20,15 @@ RUN apt update && \
     apt clean && \
     rm -rf /var/lib/apt/lists/*
      
-### Add musl-gcc aarch64, x86_64 and armv7l
+### Add musl-gcc aarch64, x86_64 and armv7l, checked against pinned hashes
 RUN wget -c https://musl.cc/x86_64-linux-musl-cross.tgz && \
-    tar zxf ./x86_64-linux-musl-cross.tgz -C /opt && \
     wget -c https://musl.cc/aarch64-linux-musl-cross.tgz && \
+    wget -c https://musl.cc/armv7l-linux-musleabihf-cross.tgz && \
+    echo "c5d410d9f82a4f24c549fe5d24f988f85b2679b452413a9f7e5f7b956f2fe7ea  x86_64-linux-musl-cross.tgz" | sha256sum -c - && \
+    echo "c909817856d6ceda86aa510894fa3527eac7989f0ef6e87b5721c58737a06c38  aarch64-linux-musl-cross.tgz" | sha256sum -c - && \
+    echo "f49f1a15ec62364ef5e4edb4e3990c0e1d2d1a54c90153b8f3869dad63328a10  armv7l-linux-musleabihf-cross.tgz" | sha256sum -c - && \
+    tar zxf ./x86_64-linux-musl-cross.tgz -C /opt && \
     tar zxf ./aarch64-linux-musl-cross.tgz -C /opt && \
-    wget -c http://musl.cc/armv7l-linux-musleabihf-cross.tgz && \
     tar zxf ./armv7l-linux-musleabihf-cross.tgz -C /opt && \
     rm ./x86_64-linux-musl-cross.tgz && \
     rm ./aarch64-linux-musl-cross.tgz && \

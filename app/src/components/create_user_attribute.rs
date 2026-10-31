@@ -36,7 +36,7 @@ pub struct CreateUserAttributeForm {
 pub struct CreateUserAttributeModel {
     #[validate(length(min = 1, message = "attribute_name is required"))]
     attribute_name: String,
-    #[validate(custom = "validate_attribute_type")]
+    #[validate(custom(function = "validate_attribute_type"))]
     attribute_type: String,
     is_editable: bool,
     is_list: bool,

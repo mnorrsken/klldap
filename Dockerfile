@@ -29,6 +29,8 @@ RUN cargo chef prepare --recipe-path /tmp/recipe.json
 # Build dependencies.
 FROM chef AS builder
 COPY --from=planner /tmp/recipe.json recipe.json
+# Not a workspace member, so the recipe does not include it.
+COPY --chown=app:app vendor vendor
 RUN cargo chef cook --release -p lldap_app --target wasm32-unknown-unknown \
     && cargo chef cook --release -p lldap \
     && cargo chef cook --release -p lldap_migration_tool \
@@ -43,7 +45,7 @@ RUN cargo build --release -p lldap -p lldap_migration_tool -p lldap_set_password
 # Final image
 FROM alpine:3.21
 
-ENV GOSU_VERSION=1.14
+ENV GOSU_VERSION=1.20
 # Fetch gosu from git
 RUN set -eux; \
         \

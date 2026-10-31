@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow, ensure};
-use validator::validate_email;
+use validator::ValidateEmail;
 use web_sys::{FormData, HtmlFormElement};
 use yew::NodeRef;
 
@@ -23,7 +23,7 @@ fn validate_email_attributes(all_values: &[AttributeValue]) -> Result<()> {
         .values;
     ensure!(!email_values.is_empty(), "Email is required");
     ensure!(email_values.len() == 1, "Multiple emails are not supported");
-    ensure!(validate_email(&email_values[0]), "Email is not valid");
+    ensure!(email_values[0].validate_email(), "Email is not valid");
     Ok(())
 }
 
