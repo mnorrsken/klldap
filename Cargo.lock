@@ -2689,7 +2689,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "lldap"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "actix",
  "actix-files",
@@ -2782,7 +2782,7 @@ dependencies = [
 
 [[package]]
 name = "lldap_app"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2817,7 +2817,7 @@ dependencies = [
 
 [[package]]
 name = "lldap_auth"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -3042,7 +3042,7 @@ dependencies = [
 
 [[package]]
 name = "lldap_validation"
-version = "0.6.3"
+version = "0.6.4"
 
 [[package]]
 name = "local-channel"

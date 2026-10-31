@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] 2026-10-31
+
+Security release for the klldap fork.
+
+### Security
+
+ - lettre upgraded to 0.11.23 (CVE-2026-46428)
+ - rustls upgraded to 0.23.46, which also fixes the rustls-webpki advisories
+ - reqwest, graphql_client and validator upgraded; this removes the old idna version (CVE-2024-12224)
+
+### Changed
+
+ - Images are now published to `ghcr.io/mnorrsken/klldap`
+ - Docker images use gosu 1.20
+ - The Rust dev image is built by this repository (`ghcr.io/mnorrsken/klldap-rust-dev`)
+ - Image builds now need cargo test, a Cargo.lock scan and the database tests to pass, and the image is scanned with Trivy before it is pushed
+ - yew_form is now vendored in `vendor/`
+ - Codecov upload removed from CI
+
+### Notes
+
+ - curve25519-dalek CVE-2024-58262 (low, timing issue) is accepted and listed in `.trivyignore`. opaque-ke 0.7 needs dalek 3, and moving to opaque-ke 4 would change the password protocol.
+
 ## [0.6.3] 2026-05-01
 
 Small release, focused on LDAP compatibility, TLS maintenance, dependency upgrades and documentation/examples.
