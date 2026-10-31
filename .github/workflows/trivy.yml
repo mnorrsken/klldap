@@ -1,0 +1,89 @@
+name: Trivy
+
+# Finds new vulnerabilities in what is already published. A failed run mails you.
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Scan image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    env:
+      TRIVY_USERNAME: ${{ github.actor }}
+      TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # gosu is skipped for the same reason as in docker-build-static.yml.
+      - name: Write SARIF report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.1
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository }}:latest
+          scanners: vuln
+          skip-files: usr/local/bin/gosu
+          ignore-unfixed: true
+          format: sarif
+          output: trivy.sarif
+      - name: Upload to GitHub code scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy.sarif
+          category: image
+      - name: Fail on vulnerabilities with a fix
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.1
+          skip-setup-trivy: true
+          scan-type: image
+          image-ref: ghcr.io/${{ github.repository }}:latest
+          scanners: vuln
+          skip-files: usr/local/bin/gosu
+          ignore-unfixed: true
+          exit-code: '1'
+
+  # The image scan cannot see Rust crates, because they are compiled into the binaries.
+  dependencies:
+    name: Scan Cargo.lock
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+      - name: Write SARIF report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.1
+          scan-type: fs
+          scan-ref: Cargo.lock
+          scanners: vuln
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          format: sarif
+          output: trivy.sarif
+      - name: Upload to GitHub code scanning
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy.sarif
+          category: cargo-lock
+      - name: Fail on vulnerabilities with a fix
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.1
+          skip-setup-trivy: true
+          scan-type: fs
+          scan-ref: Cargo.lock
+          scanners: vuln
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: '1'

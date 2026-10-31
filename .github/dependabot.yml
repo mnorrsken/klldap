@@ -1,4 +1,4 @@
-# Set update schedule for GitHub Actions
+# Set update schedule for GitHub Actions, Cargo and Docker
 
 version: 2
 updates:
@@ -6,5 +6,38 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      # Check for updates to GitHub Actions every weekday
-      interval: "daily"
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo-deps:
+        patterns: ["*"]
+    ignore:
+      # opaque-ke 0.7 ties these together. Moving past it changes the password
+      # protocol, so every stored password would stop working. See .trivyignore.
+      - dependency-name: "opaque-ke"
+      - dependency-name: "curve25519-dalek"
+      - dependency-name: "digest"
+      - dependency-name: "generic-array"
+      - dependency-name: "sha2"
+
+  - package-ecosystem: "docker"
+    directories:
+      - "/"
+      - "/.github/workflows"
+    schedule:
+      interval: "weekly"
+    groups:
+      docker:
+        patterns: ["*"]
+    ignore:
+      # The local registry that exists only during the CI build.
+      - dependency-name: "*lldap/lldap"
+      # The Rust version is pinned by hand, see CLAUDE.md.
+      - dependency-name: "rust"
