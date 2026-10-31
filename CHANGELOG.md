@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.5] 2026-10-31
+
+First published release of the klldap fork. The v0.6.4 tag has no images, because its build could not download the musl toolchains.
+
+### Changed
+
+ - Images are Debian only, for amd64 and arm64. `latest` is now the Debian image
+ - Binaries are built with glibc on native runners
+ - Dependabot now covers Cargo and Docker as well as GitHub Actions
+ - Trivy scans the published image and `Cargo.lock` every day
+
+### Removed
+
+ - Alpine images, armv7 images and the armv7 release tarball
+ - The musl toolchains and the Rust dev image
+
 ## [0.6.4] 2026-10-31
 
 Security release for the klldap fork.
