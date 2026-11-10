@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] 2026-11-10
+
+### Security
+
+ - webpki-roots upgraded to 1.0.10, which removes the distrusted emSign ECC Root CA - G3 (RUSTSEC-2026-0381, CVE-2026-111943)
+ - Images are rebuilt on current Debian packages. This fixes CVE-2026-109518 in apt, and CVE-2026-76844, CVE-2026-85091 and CVE-2026-27171 in zlib1g
+
 ## [0.6.5] 2026-10-31
 
 First published release of the klldap fork. The v0.6.4 tag has no images, because its build could not download the musl toolchains.
