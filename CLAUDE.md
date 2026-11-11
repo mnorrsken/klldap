@@ -38,7 +38,7 @@ docker run --rm -v "$PWD:/src" -v klldap-reg:/usr/local/cargo/registry -v klldap
 ## Security scanning
 
 - **Before publishing:** `docker-build-static.yml` blocks on `Cargo.lock` and on the image, for vulnerabilities that have a fix.
-- **Daily:** `trivy.yml` scans the published images and `Cargo.lock`. A failed run mails me.
+- **Daily:** `trivy.yml` scans the published `stable` image and `Cargo.lock`. A failed run mails me.
 - **The image scan cannot see Rust crates**, because they are compiled into the binaries. That is why `Cargo.lock` has its own scan.
 - **gosu is skipped on purpose:** Trivy flags every gosu release for Go CVEs in code gosu never calls (see gosu's SECURITY.md). Bumping it does not clear the findings.
 - Only add to `.trivyignore` with a written reason.
@@ -46,6 +46,7 @@ docker run --rm -v "$PWD:/src" -v klldap-reg:/usr/local/cargo/registry -v klldap
 ## CI and images
 
 - Images go to `ghcr.io/mnorrsken/klldap`, Debian only, for amd64 and arm64. Tags are `latest`, `latest-debian` and `latest-debian-rootless`, and the same pattern for versions.
+- As upstream does, `latest` is the newest build of `main`, and `stable` is the newest `v*` release. The daily Trivy scan checks `stable`.
 - Unlike upstream, this fork has no Alpine images, no armv7 and no musl builds in CI. GitHub's runners cannot reach musl.cc, so do not bring back its toolchains or a custom dev image. The root `Dockerfile` is still upstream's Alpine build, and CI does not use it.
 - Binaries are glibc, built natively on a runner of each architecture. `build-bin` is pinned to `ubuntu-24.04`, because a runner with a newer glibc than `debian:trixie` would produce binaries that fail in the image. Bump the runner and the base image together.
 - The Rust version is pinned by hand. To change it, update all of: `rust-toolchain.toml`, `rust-version` in `Cargo.toml`, and `MSRV` in `docker-build-static.yml` and `rust.yml`.
