@@ -230,8 +230,12 @@ async fn run_server_command(opts: RunOpts) -> Result<()> {
     let server = server.workers(1);
 
     let result = server.run().await.context("while starting the server");
-    if let Err(e) = sql_pool.close().await {
-        error!("Error closing database connection pool: {}", e);
+    // A TLS connection that a stopped worker opened can never finish closing, so don't wait
+    // forever for it (upstream lldap/lldap#1532).
+    match actix_rt::time::timeout(std::time::Duration::from_secs(5), sql_pool.close()).await {
+        Ok(Err(e)) => error!("Error closing database connection pool: {}", e),
+        Err(_) => warn!("Timed out while closing the database connection pool"),
+        Ok(Ok(())) => {}
     }
     result
 }
