@@ -299,6 +299,29 @@ pub(crate) fn is_subschema_entry_request(request: &LdapSearchRequest) -> bool {
     request.base == "cn=Subschema" && request.scope == LdapSearchScope::Base
 }
 
+// Evaluates a filter against the fixed "ou=people" or "ou=groups" entry.
+fn ou_entry_matches(filter: &LdapFilter, ou: &str) -> bool {
+    match filter {
+        LdapFilter::And(filters) => filters.iter().all(|f| ou_entry_matches(f, ou)),
+        LdapFilter::Or(filters) => filters.iter().any(|f| ou_entry_matches(f, ou)),
+        LdapFilter::Not(f) => !ou_entry_matches(f, ou),
+        LdapFilter::Present(attr) => {
+            attr.eq_ignore_ascii_case("objectclass") || attr.eq_ignore_ascii_case("ou")
+        }
+        LdapFilter::Equality(attr, value) => {
+            if attr.eq_ignore_ascii_case("objectclass") {
+                value.eq_ignore_ascii_case("top")
+                    || value.eq_ignore_ascii_case("organizationalunit")
+            } else if attr.eq_ignore_ascii_case("ou") {
+                value.eq_ignore_ascii_case(ou)
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
 async fn do_search_internal(
     ldap_info: &LdapInfo,
     backend_handler: &impl UserAndGroupListerBackendHandler,
@@ -370,13 +393,23 @@ async fn do_search_internal(
             InternalSearchResults::UsersAndGroups(Vec::new(), get_group_list(&filter).await?)
         }
         SearchScope::UserOuOnly | SearchScope::GroupOuOnly => {
-            InternalSearchResults::Raw(vec![LdapOp::SearchResultEntry(LdapSearchResultEntry {
-                dn: request.base.clone(),
-                attributes: vec![LdapPartialAttribute {
-                    atype: "objectClass".to_owned(),
-                    vals: vec![b"top".to_vec(), b"organizationalUnit".to_vec()],
-                }],
-            })])
+            let ou = if matches!(scope, SearchScope::UserOuOnly) {
+                "people"
+            } else {
+                "groups"
+            };
+            if ou_entry_matches(&request.filter, ou) {
+                InternalSearchResults::Raw(vec![LdapOp::SearchResultEntry(LdapSearchResultEntry {
+                    dn: request.base.clone(),
+                    attributes: vec![LdapPartialAttribute {
+                        atype: "objectClass".to_owned(),
+                        vals: vec![b"top".to_vec(), b"organizationalUnit".to_vec()],
+                    }],
+                })])
+            } else {
+                // The entry exists but doesn't match: no entry, but not NoSuchObject either.
+                InternalSearchResults::Raw(vec![make_search_success()])
+            }
         }
         SearchScope::Unknown => {
             warn!(
@@ -407,7 +440,28 @@ pub async fn do_search(
     })?);
     let search_results = do_search_internal(ldap_info, backend_handler, request, &schema).await?;
     let mut results = match search_results {
-        InternalSearchResults::UsersAndGroups(users, groups) => {
+        InternalSearchResults::UsersAndGroups(mut users, mut groups) => {
+            if backend_handler.user_filter().is_some() {
+                // The schema of a restricted user only has the visible attributes: hide the
+                // values of the others too.
+                let schema = schema.get_schema();
+                for user in users.iter_mut() {
+                    user.user.attributes.retain(|a| {
+                        schema
+                            .user_attributes
+                            .get_attribute_schema(&a.name)
+                            .is_some()
+                    });
+                }
+                for group in groups.iter_mut() {
+                    group.attributes.retain(|a| {
+                        schema
+                            .group_attributes
+                            .get_attribute_schema(&a.name)
+                            .is_some()
+                    });
+                }
+            }
             convert_users_to_ldap_op(users, &request.attrs, ldap_info, &schema)
                 .chain(convert_groups_to_ldap_op(
                     groups,
@@ -442,7 +496,7 @@ mod tests {
         core::error::LdapError,
         handler::tests::{
             make_group_search_request, make_user_search_request, setup_bound_admin_handler,
-            setup_bound_readonly_handler,
+            setup_bound_handler_with_group, setup_bound_readonly_handler,
         },
     };
     use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
@@ -1352,6 +1406,112 @@ mod tests {
                 make_search_success()
             ])
         );
+    }
+
+    #[tokio::test]
+    async fn test_ou_search_applies_filter() {
+        let ldap_handler = setup_bound_readonly_handler(MockTestBackendHandler::new()).await;
+        let make_request = |base: &str, filter| LdapSearchRequest {
+            base: base.to_owned(),
+            scope: LdapSearchScope::Base,
+            aliases: LdapDerefAliases::Never,
+            sizelimit: 0,
+            timelimit: 0,
+            typesonly: false,
+            filter,
+            attrs: Vec::new(),
+        };
+        for base in ["ou=people,dc=example,dc=com", "ou=groups,dc=example,dc=com"] {
+            for filter in [
+                LdapFilter::Equality("ou".to_owned(), "pd-nothing".to_owned()),
+                LdapFilter::Equality("objectClass".to_owned(), "person".to_owned()),
+            ] {
+                assert_eq!(
+                    ldap_handler
+                        .do_search_or_dse(&make_request(base, filter))
+                        .await,
+                    Ok(vec![make_search_success()])
+                );
+            }
+        }
+        let response = ldap_handler
+            .do_search_or_dse(&make_request(
+                "ou=groups,dc=example,dc=com",
+                LdapFilter::And(vec![
+                    LdapFilter::Equality("objectClass".to_owned(), "organizationalUnit".to_owned()),
+                    LdapFilter::Equality("ou".to_owned(), "Groups".to_owned()),
+                ]),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_hidden_attribute_not_returned_to_regular_user() {
+        let mut mock = MockTestBackendHandler::new();
+        mock.expect_get_schema().returning(|| {
+            let attribute = |name: &str, is_visible| AttributeSchema {
+                name: name.into(),
+                attribute_type: AttributeType::String,
+                is_list: false,
+                is_visible,
+                is_editable: false,
+                is_hardcoded: false,
+                is_readonly: false,
+            };
+            Ok(Schema {
+                user_attributes: AttributeList {
+                    attributes: vec![attribute("nickname", true), attribute("secret", false)],
+                },
+                group_attributes: AttributeList {
+                    attributes: Vec::new(),
+                },
+                extra_user_object_classes: Vec::new(),
+                extra_group_object_classes: Vec::new(),
+            })
+        });
+        mock.expect_list_users().returning(|_, _| {
+            Ok(vec![UserAndGroups {
+                user: User {
+                    user_id: UserId::new("test"),
+                    attributes: vec![
+                        Attribute {
+                            name: "nickname".into(),
+                            value: "Bob".to_string().into(),
+                        },
+                        Attribute {
+                            name: "secret".into(),
+                            value: "hidden".to_string().into(),
+                        },
+                    ],
+                    ..Default::default()
+                },
+                groups: None,
+            }])
+        });
+        let ldap_handler = setup_bound_handler_with_group(mock, "regular").await;
+        let request = make_user_search_request(LdapFilter::And(vec![]), vec!["secret", "nickname"]);
+        assert_eq!(
+            ldap_handler.do_search_or_dse(&request).await,
+            Ok(vec![
+                LdapOp::SearchResultEntry(LdapSearchResultEntry {
+                    dn: "uid=test,ou=people,dc=example,dc=com".to_string(),
+                    attributes: vec![LdapPartialAttribute {
+                        atype: "nickname".to_string(),
+                        vals: vec![b"Bob".to_vec()],
+                    }],
+                }),
+                make_search_success()
+            ])
+        );
+        let request = make_user_search_request(LdapFilter::And(vec![]), vec!["*"]);
+        let response = ldap_handler.do_search_or_dse(&request).await.unwrap();
+        let LdapOp::SearchResultEntry(entry) = &response[0] else {
+            panic!("Unexpected response: {response:?}");
+        };
+        assert!(entry.attributes.iter().any(|a| a.atype == "nickname"));
+        assert!(!entry.attributes.iter().any(|a| a.atype == "secret"));
     }
 
     #[tokio::test]
