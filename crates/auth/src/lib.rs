@@ -70,6 +70,11 @@ pub mod registration {
     #[derive(Serialize, Deserialize, Clone)]
     pub struct ServerData {
         pub username: UserId,
+        /// The registration cannot be finished after this time.
+        pub expiry: chrono::NaiveDateTime,
+        /// The user's password modification date when the registration started. Any password
+        /// change since then, including this registration, invalidates it.
+        pub password_modified_date: chrono::NaiveDateTime,
     }
 
     #[derive(Serialize, Deserialize, Clone)]

@@ -221,7 +221,7 @@ pub mod tests {
         });
         mock.expect_registration_finish()
             .times(1)
-            .return_once(|_| Ok(()));
+            .return_once(|_| Ok(UserId::new("bob")));
     }
 
     #[tokio::test]
@@ -398,7 +398,7 @@ pub mod tests {
         });
         mock.expect_registration_finish()
             .times(1)
-            .return_once(|_| Ok(()));
+            .return_once(|_| Ok(UserId::new("bob")));
         let mut ldap_handler = setup_bound_admin_handler(mock).await;
         let request = LdapOp::ModifyRequest(LdapModifyRequest {
             dn: "uid=bob,ou=people,dc=example,dc=com".to_string(),
@@ -448,7 +448,7 @@ pub mod tests {
         });
         mock.expect_registration_finish()
             .times(1)
-            .return_once(|_| Ok(()));
+            .return_once(|_| Ok(UserId::new("bob")));
         let mut ldap_handler = setup_bound_password_manager_handler(mock).await;
         let request = LdapOp::ExtendedRequest(
             LdapPasswordModifyRequest {

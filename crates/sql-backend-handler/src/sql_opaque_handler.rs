@@ -60,6 +60,17 @@ impl SqlBackendHandler {
             .await?
             .and_then(|u| u.0))
     }
+
+    async fn get_password_modified_date(&self, user_id: UserId) -> Result<chrono::NaiveDateTime> {
+        Ok(model::User::find_by_id(user_id.clone())
+            .select_only()
+            .column(UserColumn::PasswordModifiedDate)
+            .into_tuple::<(chrono::NaiveDateTime,)>()
+            .one(&self.sql_pool)
+            .await?
+            .ok_or_else(|| DomainError::EntityNotFound(user_id.to_string()))?
+            .0)
+    }
 }
 
 #[async_trait]
@@ -172,9 +183,14 @@ impl OpaqueHandler for SqlOpaqueHandler {
             request.registration_start_request,
             &request.username,
         )?;
+        let password_modified_date = self
+            .get_password_modified_date(request.username.clone())
+            .await?;
         let secret_key = self.get_orion_secret_key()?;
         let server_data = registration::ServerData {
             username: request.username,
+            expiry: chrono::Utc::now().naive_utc() + chrono::Duration::minutes(5),
+            password_modified_date,
         };
         let encrypted_state = orion::aead::seal(&secret_key, &bincode::serialize(&server_data)?)?;
         Ok(registration::ServerRegistrationStartResponse {
@@ -187,12 +203,25 @@ impl OpaqueHandler for SqlOpaqueHandler {
     async fn registration_finish(
         &self,
         request: registration::ClientRegistrationFinishRequest,
-    ) -> Result<()> {
+    ) -> Result<UserId> {
         let secret_key = self.get_orion_secret_key()?;
-        let registration::ServerData { username } = bincode::deserialize(&orion::aead::open(
+        let registration::ServerData {
+            username,
+            expiry,
+            password_modified_date,
+        } = bincode::deserialize(&orion::aead::open(
             &secret_key,
             &base64::engine::general_purpose::STANDARD.decode(&request.server_data)?,
         )?)?;
+        // The registration can only be used once, and only shortly after it started.
+        if expiry < chrono::Utc::now().naive_utc()
+            || self.get_password_modified_date(username.clone()).await? != password_modified_date
+        {
+            return Err(DomainError::AuthenticationError(format!(
+                r#"Expired password registration for "{}""#,
+                &username
+            )));
+        }
 
         let password_file =
             opaque::server::registration::get_password_file(request.registration_upload);
@@ -207,7 +236,7 @@ impl OpaqueHandler for SqlOpaqueHandler {
         };
         user_update.update(&self.sql_pool).await?;
         info!(r#"Successfully (re)set password for "{}""#, &username);
-        Ok(())
+        Ok(username)
     }
 }
 
@@ -239,6 +268,7 @@ pub async fn register_password(
             registration_upload: registration_finish.message,
         })
         .await
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -297,6 +327,35 @@ mod tests {
             .await
             .unwrap_err();
         attempt_login(&backend_handler, "bob", "bob00").await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_registration_finish_is_single_use() -> Result<()> {
+        let sql_pool = get_initialized_db().await;
+        let handler = SqlOpaqueHandler::new(generate_random_private_key(), sql_pool);
+        insert_user_no_password(&handler, "bob").await;
+        let mut rng = rand::rngs::OsRng;
+        use registration::*;
+        let start = opaque::client::registration::start_registration(b"bob00", &mut rng)?;
+        let start_response = handler
+            .registration_start(ClientRegistrationStartRequest {
+                username: UserId::new("bob"),
+                registration_start_request: start.message,
+            })
+            .await?;
+        let finish = opaque::client::registration::finish_registration(
+            start.state,
+            start_response.registration_response,
+            &mut rng,
+        )?;
+        let request = ClientRegistrationFinishRequest {
+            server_data: start_response.server_data,
+            registration_upload: finish.message,
+        };
+        handler.registration_finish(request.clone()).await?;
+        attempt_login(&handler, "bob", "bob00").await?;
+        handler.registration_finish(request).await.unwrap_err();
         Ok(())
     }
 

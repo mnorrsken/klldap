@@ -120,8 +120,10 @@ impl TcpBackendHandler for SqlBackendHandler {
     }
 
     #[instrument(skip_all, level = "debug")]
-    async fn delete_refresh_token(&self, refresh_token_hash: u64) -> Result<()> {
-        model::JwtRefreshStorage::delete_by_id(refresh_token_hash as i64)
+    async fn delete_refresh_tokens(&self, user: &UserId) -> Result<()> {
+        debug!(?user);
+        model::JwtRefreshStorage::delete_many()
+            .filter(JwtRefreshStorageColumn::UserId.eq(user))
             .exec(self.pool())
             .await?;
         Ok(())

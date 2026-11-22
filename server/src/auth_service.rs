@@ -279,6 +279,27 @@ where
         .unwrap_or_else(error_to_http_response)
 }
 
+/// Deletes the user's refresh tokens and blacklists their JWTs, except `keep_jwt`.
+async fn revoke_sessions<Backend>(
+    data: &web::Data<AppState<Backend>>,
+    user: &UserId,
+    keep_jwt: Option<&str>,
+) -> TcpResult<()>
+where
+    Backend: TcpBackendHandler + BackendHandler + 'static,
+{
+    data.get_tcp_handler().delete_refresh_tokens(user).await?;
+    let new_blacklisted_jwt_hashes = data.get_tcp_handler().blacklist_jwts(user).await?;
+    let keep_jwt = keep_jwt.map(default_hash);
+    let mut jwt_blacklist = data.jwt_blacklist.write().unwrap();
+    for jwt_hash in new_blacklisted_jwt_hashes {
+        if Some(jwt_hash) != keep_jwt {
+            jwt_blacklist.insert(jwt_hash);
+        }
+    }
+    Ok(())
+}
+
 #[instrument(skip_all, level = "debug")]
 async fn get_logout<Backend>(
     data: web::Data<AppState<Backend>>,
@@ -288,13 +309,13 @@ where
     Backend: TcpBackendHandler + BackendHandler + 'static,
 {
     let (refresh_token_hash, user) = get_refresh_token(request)?;
-    data.get_tcp_handler()
-        .delete_refresh_token(refresh_token_hash)
-        .await?;
-    let new_blacklisted_jwt_hashes = data.get_tcp_handler().blacklist_jwts(&user).await?;
-    let mut jwt_blacklist = data.jwt_blacklist.write().unwrap();
-    for jwt_hash in new_blacklisted_jwt_hashes {
-        jwt_blacklist.insert(jwt_hash);
+    // Only a valid refresh token can log the user out, and then it logs out all their sessions.
+    if data
+        .get_tcp_handler()
+        .check_token(refresh_token_hash, &user)
+        .await?
+    {
+        revoke_sessions(&data, &user, None).await?;
     }
     let mut path = data.server_url.path().to_string();
     if !path.ends_with('/') {
@@ -513,26 +534,40 @@ where
 
 #[instrument(skip_all, level = "debug")]
 async fn opaque_register_finish<Backend>(
+    http_request: HttpRequest,
     data: web::Data<AppState<Backend>>,
     request: web::Json<registration::ClientRegistrationFinishRequest>,
 ) -> TcpResult<HttpResponse>
 where
     Backend: TcpBackendHandler + BackendHandler + OpaqueHandler + 'static,
 {
-    data.get_opaque_handler()
+    use actix_web::FromRequest;
+    // The session that started the registration must still be valid.
+    let bearer = BearerAuth::extract(&http_request)
+        .await
+        .ok()
+        .filter(|bearer| check_if_token_is_valid(&data, bearer.token()).is_ok())
+        .ok_or_else(|| {
+            TcpError::UnauthorizedError("Not authorized to change the user's password".to_string())
+        })?;
+    let user = data
+        .get_opaque_handler()
         .registration_finish(request.into_inner())
         .await?;
+    // Log out the user's other sessions.
+    revoke_sessions(&data, &user, Some(bearer.token())).await?;
     Ok(HttpResponse::Ok().finish())
 }
 
 async fn opaque_register_finish_handler<Backend>(
+    http_request: HttpRequest,
     data: web::Data<AppState<Backend>>,
     request: web::Json<registration::ClientRegistrationFinishRequest>,
 ) -> HttpResponse
 where
     Backend: TcpBackendHandler + BackendHandler + OpaqueHandler + 'static,
 {
-    opaque_register_finish(data, request)
+    opaque_register_finish(http_request, data, request)
         .await
         .unwrap_or_else(error_to_http_response)
 }
