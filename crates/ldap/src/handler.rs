@@ -166,6 +166,9 @@ impl<Backend: BackendHandler + LoginHandler + OpaqueHandler> LdapHandler<Backend
 
     #[instrument(skip_all, level = "debug", fields(dn = %request.dn))]
     pub async fn do_bind(&mut self, request: &LdapBindRequest) -> Vec<LdapOp> {
+        // RFC 4513 section 4: the session is anonymous from the start of a bind, and stays
+        // anonymous if the bind fails.
+        self.user_info = None;
         let (code, message) =
             match password::do_bind(self.ldap_info, request, self.get_login_handler()).await {
                 Ok(user_id) => {
@@ -229,7 +232,7 @@ impl<Backend: BackendHandler + LoginHandler + OpaqueHandler> LdapHandler<Backend
                 vec![make_extended_response(LdapResultCode::Success, authz_id)]
             }
             _ => vec![make_extended_response(
-                LdapResultCode::UnwillingToPerform,
+                LdapResultCode::ProtocolError,
                 format!("Unsupported extended operation: {}", &request.name),
             )],
         }
@@ -314,6 +317,9 @@ impl<Backend: BackendHandler + LoginHandler + OpaqueHandler> LdapHandler<Backend
                 // No need to notify on unbind (per rfc4511)
                 return None;
             }
+            // Abandon has no response (rfc4511 section 4.11). Returning None would close the
+            // connection.
+            LdapOp::AbandonRequest(_) => vec![],
             LdapOp::ModifyRequest(request) => self.do_modify_request(&request).await,
             LdapOp::ExtendedRequest(request) => self.do_extended_request(&request).await,
             LdapOp::AddRequest(request) => self
@@ -445,6 +451,46 @@ pub mod tests {
                 LdapResultCode::Success,
                 "dn:uid=test,ou=people,dc=example,dc=com".to_string(),
             )])
+        );
+    }
+
+    #[tokio::test]
+    async fn test_failed_bind_clears_previous_bind() {
+        let mut mock = MockTestBackendHandler::new();
+        mock.expect_bind()
+            .with(eq(BindRequest {
+                name: UserId::new("bob"),
+                password: "wrong".to_string(),
+            }))
+            .return_once(|_| {
+                Err(lldap_domain_model::error::DomainError::AuthenticationError(
+                    "wrong".to_string(),
+                ))
+            });
+        let mut ldap_handler = setup_bound_admin_handler(mock).await;
+        let request = LdapBindRequest {
+            dn: "uid=bob,ou=people,dc=example,dc=com".to_string(),
+            cred: LdapBindCred::Simple("wrong".to_string()),
+        };
+        assert_ne!(ldap_handler.do_bind(&request).await, make_bind_success());
+        let request = LdapOp::ExtendedRequest(LdapWhoamiRequest {}.into());
+        assert_eq!(
+            ldap_handler.handle_ldap_message(request).await,
+            Some(vec![make_extended_response(
+                LdapResultCode::Success,
+                "".to_string(),
+            )])
+        );
+    }
+
+    #[tokio::test]
+    async fn test_abandon_has_no_response() {
+        let mut ldap_handler = setup_bound_admin_handler(MockTestBackendHandler::new()).await;
+        assert_eq!(
+            ldap_handler
+                .handle_ldap_message(LdapOp::AbandonRequest(999))
+                .await,
+            Some(vec![])
         );
     }
 }
