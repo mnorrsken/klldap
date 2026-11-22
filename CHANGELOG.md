@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] 2026-11-22
+
+### Security
+
+ - Images are rebuilt on current Debian packages. This fixes CVE-2026-18374, CVE-2026-19499, CVE-2026-19542, CVE-2026-5435, CVE-2026-6238, CVE-2026-6368, CVE-2026-6791, CVE-2026-77117, CVE-2026-80489, CVE-2026-8674, CVE-2026-86805, CVE-2026-89092, CVE-2026-95818 and CVE-2026-97399 in glibc, and CVE-2026-58055 in nghttp2
+ - LDAP: a failed bind no longer keeps the previous user's authorization on the connection (upstream #1548)
+ - LDAP: a regular user can no longer read their own custom attributes that are not visible, with Search or Compare (upstream #1534)
+ - LDAP: a modify, add or delete request with a mixed-case DN no longer panics (upstream #1542)
+ - A password registration started with `/auth/opaque/register/start` now expires after 5 minutes, can be used once, is invalidated by any other password change, and needs a valid session to finish (upstream #1517)
+ - Logout checks the refresh token, and deletes all of the user's refresh tokens (upstream #1541)
+ - A password change through the web UI or `lldap_set_password` logs out the user's other sessions
+ - The password reset request takes the same time whether the user exists or not (upstream #1026)
+
+### Fixed
+
+ - LDAP: the paged results control is only sent when the client asked for it, which fixes strict clients such as the Gigaset N610 (upstream #1513)
+ - LDAP: a base-object search of `ou=people` or `ou=groups` applies the filter (upstream #1554)
+ - LDAP: Abandon requests get no response, and an unknown extended operation returns protocolError (upstream #1551, #1553)
+ - lldap no longer hangs on SIGTERM with a TLS connection to postgres (upstream #1532)
+
 ## [0.6.7] 2026-11-10
 
 The v0.6.6 tag has no images, because the image scan found an old zlib1g.
