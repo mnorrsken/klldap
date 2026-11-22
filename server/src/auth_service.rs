@@ -34,7 +34,7 @@ use std::{
     task::{Context, Poll},
 };
 use time::ext::NumericalDuration;
-use tracing::{debug, info, instrument, warn};
+use tracing::{Instrument, debug, info, instrument, warn};
 use uuid::Uuid;
 
 type Token<S> = jwt::Token<jwt::Header, JWTClaims, S>;
@@ -178,7 +178,7 @@ where
             "Ambiguous user id or email".to_owned(),
         ));
     }
-    let user = &user_results[0].user;
+    let user = user_results.into_iter().next().unwrap().user;
     let token = match data
         .get_tcp_handler()
         .start_password_reset(&user.user_id)
@@ -187,24 +187,28 @@ where
         None => return Ok(()),
         Some(token) => token,
     };
-    if let Err(e) = super::mail::send_password_reset_email(
-        user.display_name
-            .as_deref()
-            .unwrap_or_else(|| user.user_id.as_str()),
-        user.user_id.as_str(),
-        user.email.as_str(),
-        &token,
-        &data.server_url,
-        &data.mail_options,
-    )
-    .await
-    {
-        warn!("Error sending email: {:#?}", e);
-        info!("Reset token: {}", token);
-        return Err(TcpError::InternalServerError(format!(
-            "Could not send email: {e}"
-        )));
-    }
+    // Send the email in the background, so that the response time doesn't tell whether the user
+    // exists (upstream lldap/lldap#1026).
+    actix_rt::spawn(
+        async move {
+            if let Err(e) = super::mail::send_password_reset_email(
+                user.display_name
+                    .as_deref()
+                    .unwrap_or_else(|| user.user_id.as_str()),
+                user.user_id.as_str(),
+                user.email.as_str(),
+                &token,
+                &data.server_url,
+                &data.mail_options,
+            )
+            .await
+            {
+                warn!("Error sending email: {:#?}", e);
+                info!("Reset token: {}", token);
+            }
+        }
+        .in_current_span(),
+    );
     Ok(())
 }
 
