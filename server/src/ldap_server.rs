@@ -33,6 +33,11 @@ where
         }
     }
     debug!(?msg);
+    // Only answer with a paged results control if the client asked for one (rfc2696).
+    let paged_results_requested = msg
+        .ctrl
+        .iter()
+        .any(|c| matches!(c, LdapControl::SimplePagedResults { .. }));
     match session.handle_ldap_message(msg.op).await {
         None => return Ok(false),
         Some(result) => {
@@ -42,14 +47,15 @@ where
             let results: i64 = result.len().try_into().unwrap();
             for response in result.into_iter() {
                 debug!(?response);
-                let controls = if matches!(response, LdapOp::SearchResultDone(_)) {
-                    vec![LdapControl::SimplePagedResults {
-                        size: results - 1, // Avoid counting SearchResultDone as a result
-                        cookie: vec![],
-                    }]
-                } else {
-                    vec![]
-                };
+                let controls =
+                    if paged_results_requested && matches!(response, LdapOp::SearchResultDone(_)) {
+                        vec![LdapControl::SimplePagedResults {
+                            size: results - 1, // Avoid counting SearchResultDone as a result
+                            cookie: vec![],
+                        }]
+                    } else {
+                        vec![]
+                    };
                 resp.send(LdapMsg {
                     msgid: msg.msgid,
                     op: response,
