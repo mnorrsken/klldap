@@ -25,7 +25,10 @@ pub(crate) async fn delete_user_or_group(
     request: String,
 ) -> LdapResult<Vec<LdapOp>> {
     let base_dn_str = &ldap_info.base_dn_str;
-    match get_user_or_group_id_from_distinguished_name(&request, &ldap_info.base_dn) {
+    match get_user_or_group_id_from_distinguished_name(
+        &request.to_ascii_lowercase(),
+        &ldap_info.base_dn,
+    ) {
         UserOrGroupName::User(user_id) => delete_user(backend_handler, user_id).await,
         UserOrGroupName::Group(group_name) => delete_group(backend_handler, group_name).await,
         err => Err(err.into_ldap_error(

@@ -76,7 +76,7 @@ where
     UserBackendHandler: UserReadableBackendHandler + 'cred,
 {
     match get_user_id_from_distinguished_name(
-        &request.dn,
+        &request.dn.to_ascii_lowercase(),
         &ldap_info.base_dn,
         &ldap_info.base_dn_str,
     ) {
@@ -203,6 +203,19 @@ mod tests {
         expect_password_change(&mut mock, "bob");
         let ldap_handler = setup_bound_admin_handler(mock).await;
         let request = make_password_modify_request("bob");
+        assert_eq!(
+            ldap_handler.do_modify_request(&request).await,
+            make_modify_success_response()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_modify_password_mixed_case_dn() {
+        let mut mock = MockTestBackendHandler::new();
+        setup_target_user_groups(&mut mock, "bob", Vec::new());
+        expect_password_change(&mut mock, "bob");
+        let ldap_handler = setup_bound_admin_handler(mock).await;
+        let request = make_password_modify_request("Bob");
         assert_eq!(
             ldap_handler.do_modify_request(&request).await,
             make_modify_success_response()

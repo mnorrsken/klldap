@@ -126,7 +126,10 @@ pub(crate) async fn create_user_or_group(
     request: LdapAddRequest,
 ) -> LdapResult<Vec<LdapOp>> {
     let base_dn_str = &ldap_info.base_dn_str;
-    match get_user_or_group_id_from_distinguished_name(&request.dn, &ldap_info.base_dn) {
+    match get_user_or_group_id_from_distinguished_name(
+        &request.dn.to_ascii_lowercase(),
+        &ldap_info.base_dn,
+    ) {
         UserOrGroupName::User(user_id) => {
             create_user(backend_handler, user_id, request.attributes).await
         }
